@@ -25,10 +25,9 @@ NOW=$(date +%s)
 THRESHOLD=6
 
 # ログをパースして条件に合う最新のものを探す
-TRACE_ID=$(kubectl logs -l app=trace-generator --timestamps | grep "Generated slow trace" -B 1 | grep "Generated trace" | tac | while read -r line; do
-  # line format: 2026-02-15T09:12:17.123456789Z 2026/02/15 09:12:17 Generated trace: <ID>
+TRACE_ID=$(kubectl logs -l app=trace-generator --timestamps | grep "Generated slow trace" | tac | while read -r line; do
+  # line format: 2026-02-15T09:12:17.123456789Z 2026/02/15 09:12:17 Generated slow trace (>100ms): <ID>
   TS=$(echo "$line" | awk '{print $1}')
-  # TSを秒数に変換 (GNU dateの場合)
   TS_SEC=$(date -d "$TS" +%s)
   DIFF=$((NOW - TS_SEC))
   

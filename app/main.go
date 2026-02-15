@@ -113,11 +113,11 @@ func generateTrace(ctx context.Context, tracer trace.Tracer) {
 	}
 
 	// Occasionally generate slow traces for tail sampling test
-	if time.Now().UnixNano()%7 == 0 {
+	if time.Now().Unix()%3 == 0 {
 		_, slowSpan := tracer.Start(ctx, "slow-span")
 		time.Sleep(150 * time.Millisecond)
 		slowSpan.End()
-		log.Println("Generated slow trace (>100ms)")
+		log.Printf("Generated slow trace (>100ms): %s", span.SpanContext().TraceID())
 	}
 
 	// Occasionally generate error spans for tail sampling test
