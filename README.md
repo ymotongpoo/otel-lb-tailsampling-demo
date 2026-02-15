@@ -77,3 +77,25 @@ Tier 2 でテイルサンプリングが行われ、`debug` エクスポータ�
 ```bash
 kubectl logs -l app=otel-tier2
 ```
+
+### 同一トレースの集約確認
+
+ロードバランサー・エクスポーターが正しく動作している（同じ TraceID のスパンが同じ Tier 2 インスタンスに飛んでいる）ことを確認するには、以下の手順を行います。
+
+1. **TraceID の取得**:
+   `trace-generator` のログから、生成された TraceID を一つコピーします。
+   ```bash
+   kubectl logs -l app=trace-generator | grep "Generated trace" | tail -n 1
+   ```
+
+2. **Tier 2 での検索**:
+   取得した TraceID が、**特定の pod 1つだけに現れること**を確認します。
+   ```bash
+   # 全ての Tier 2 pod に対して grep を実行
+   for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
+     echo "Checking $pod..."
+     kubectl logs $pod | grep <コピーしたTraceID>
+   done
+   ```
+
+もし設定が正しくなければ、同じ TraceID のスパン（root-span と child-span など）が別々の pod のログに分散して現れます。正しく設定されていれば、必ず特定の pod 1つのログにのみ集約されます。
