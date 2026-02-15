@@ -50,8 +50,11 @@ FOUND=false
 for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
   echo -n "Checking $pod... "
   # grepでTraceIDを検索。見つかれば詳細を表示。
-  if kubectl logs $pod | grep -q "$TRACE_ID"; then
+  MATCH=$(kubectl logs $pod | grep "$TRACE_ID" || true)
+  if [ -n "$MATCH" ]; then
     echo "FOUND!"
+    echo "Log detail:"
+    echo "$MATCH"
     FOUND=true
     break
   else

@@ -15,15 +15,9 @@ data:
         num_traces: 10000
         expected_new_traces_per_sec: 100
         policies:
-          - name: error-policy
-            type: status_code
-            status_code: {status_codes: [ERROR]}
           - name: latency-policy
             type: latency
             latency: {threshold_ms: 100}
-          - name: probabilistic-policy
-            type: probabilistic
-            probabilistic: {sampling_percentage: 10}
     exporters:
       debug:
         verbosity: detailed
