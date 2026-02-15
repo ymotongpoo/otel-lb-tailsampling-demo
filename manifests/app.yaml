@@ -19,7 +19,7 @@ kind: Deployment
 metadata:
   name: trace-generator
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: trace-generator
