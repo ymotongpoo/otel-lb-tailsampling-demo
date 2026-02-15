@@ -14,15 +14,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-FROM golang:1.24-alpine AS builder
-RUN apk add --no-cache git ca-certificates
+FROM golang:1.24-bookworm AS builder
+RUN apt-get update && apt-get install -y git ca-certificates
 RUN go install go.opentelemetry.io/collector/cmd/builder@v0.120.0
 WORKDIR /app
 COPY builder-config.yaml .
 RUN builder --config builder-config.yaml
 
-FROM alpine:latest
-RUN apk add --no-cache ca-certificates
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/dist/otelcol-custom /otelcol-custom
 EXPOSE 4317 4318
 ENTRYPOINT ["/otelcol-custom"]
