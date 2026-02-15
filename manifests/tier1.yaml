@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-tier1-config
+data:
+  relay.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+          http:
+    exporters:
+      loadbalancing:
+        protocol:
+          otlp:
+            tls:
+              insecure: true
+        resolver:
+          dns:
+            hostname: otel-tier2-internal
+            port: 4317
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [loadbalancing]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-gateway
+spec:
+  selector:
+    app: otel-tier1
+  ports:
+    - name: grpc
+      port: 4317
+    - name: http
+      port: 4318
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-tier1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: otel-tier1
+  template:
+    metadata:
+      labels:
+        app: otel-tier1
+    spec:
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:latest
+        command: ["/otelcol-contrib"]
+        args: ["--config=/etc/otelcol/relay.yaml"]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+      volumes:
+      - name: config
+        configMap:
+          name: otel-tier1-config

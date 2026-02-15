@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-tier2-config
+data:
+  relay.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+    processors:
+      batch:
+      tail_sampling:
+        decision_wait: 10s
+        num_traces: 10000
+        expected_new_traces_per_sec: 100
+        policies:
+          - name: error-policy
+            type: status_code
+            status_code: {status_codes: [ERROR]}
+          - name: probabilistic-policy
+            type: probabilistic
+            probabilistic: {sampling_percentage: 10}
+    exporters:
+      logging:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [tail_sampling, batch]
+          exporters: [logging]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-tier2-internal
+spec:
+  clusterIP: None # Headless Service
+  selector:
+    app: otel-tier2
+  ports:
+    - port: 4317
+      targetPort: 4317
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: otel-tier2
+spec:
+  serviceName: otel-tier2-internal
+  replicas: 3
+  selector:
+    matchLabels:
+      app: otel-tier2
+  template:
+    metadata:
+      labels:
+        app: otel-tier2
+    spec:
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:latest
+        command: ["/otelcol-contrib"]
+        args: ["--config=/etc/otelcol/relay.yaml"]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+      volumes:
+      - name: config
+        configMap:
+          name: otel-tier2-config
