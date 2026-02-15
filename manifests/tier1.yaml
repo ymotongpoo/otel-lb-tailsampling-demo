@@ -8,8 +8,12 @@ data:
       otlp:
         protocols:
           grpc:
+            endpoint: 0.0.0.0:4317
           http:
+            endpoint: 0.0.0.0:4318
     exporters:
+      debug:
+        verbosity: basic
       loadbalancing:
         protocol:
           otlp:
@@ -23,7 +27,7 @@ data:
       pipelines:
         traces:
           receivers: [otlp]
-          exporters: [loadbalancing]
+          exporters: [loadbalancing, debug]
 ---
 apiVersion: v1
 kind: Service
