@@ -40,17 +40,21 @@ done)
 if [ -z "$TRACE_ID" ]; then
   echo "Error: No slow traces found in generator logs that are old enough."
   echo "Latest logs from generator:"
-  kubectl logs -l app=trace-generator --tail=5 | grep "Generated trace"
+  kubectl logs -l app=trace-generator --tail=5
   exit 1
 fi
 
 echo "Found slow TraceID: $TRACE_ID"
+echo "Generator side Span IDs:"
+# 生成器側のログから該当TraceIDの全スパンIDを抽出
+kubectl logs -l app=trace-generator | grep "\[GEN\] TraceID: $TRACE_ID" | sed 's/.*SpanID: \([^,]*\).*/  - \1/' | sort -u
+
+echo "--------------------------------------------------"
 echo "Verifying that all spans for this TraceID are routed to the same Tier 2 collector pod..."
 
 # 2. Tier 2 podsを巡回して検索 (リトライ付き)
 MAX_RETRIES=3
 RETRY_COUNT=0
-FINAL_POD=""
 SPANS_FOUND=0
 UNIQUE_PODS=""
 
@@ -62,14 +66,6 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SPANS_FOUND -eq 0 ]; do
 
   for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
     echo -n "Checking $pod... "
-    # 特定のTraceIDに関連するスパン情報を抽出 (ID: <span-id> の行を取得)
-    # debug exporterの出力形式に依存:
-    # Span #0
-    #     Trace ID       : <trace-id>
-    #     Parent ID      : <parent-id>
-    #     ID             : <span-id>
-    #     Name           : <name>
-    
     # 該当TraceIDを含む行の直後数行からIDを抽出する
     POD_LOGS=$(kubectl logs $pod --since=2m)
     # Trace IDの行を見つけ、その後の ID : の行を抽出
@@ -79,7 +75,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SPANS_FOUND -eq 0 ]; do
     
     if [ $COUNT -gt 0 ]; then
       echo "FOUND $COUNT span(s)!"
-      echo "Span IDs:"
+      echo "Span IDs found in $pod:"
       echo "$SPANS" | sed 's/^/  - /'
       
       SPANS_FOUND=$((SPANS_FOUND + COUNT))

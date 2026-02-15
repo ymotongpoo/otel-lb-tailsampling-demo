@@ -103,11 +103,12 @@ func generateTrace(ctx context.Context, tracer trace.Tracer) {
 	ctx, span := tracer.Start(ctx, "root-span")
 	defer span.End()
 
-	log.Printf("Generated trace: %s", span.SpanContext().TraceID())
+	log.Printf("[GEN] TraceID: %s, SpanID: %s, Name: root-span", span.SpanContext().TraceID(), span.SpanContext().SpanID())
 
 	// Generate child spans to test load balancing
 	for i := 0; i < 3; i++ {
 		_, childSpan := tracer.Start(ctx, fmt.Sprintf("child-span-%d", i))
+		log.Printf("[GEN] TraceID: %s, SpanID: %s, Name: child-span-%d", childSpan.SpanContext().TraceID(), childSpan.SpanContext().SpanID(), i)
 		time.Sleep(10 * time.Millisecond)
 		childSpan.End()
 	}
@@ -115,6 +116,7 @@ func generateTrace(ctx context.Context, tracer trace.Tracer) {
 	// Occasionally generate slow traces for tail sampling test
 	if time.Now().Unix()%3 == 0 {
 		ctx, slowSpan := tracer.Start(ctx, "slow-span")
+		log.Printf("[GEN] TraceID: %s, SpanID: %s, Name: slow-span (SLOW)", slowSpan.SpanContext().TraceID(), slowSpan.SpanContext().SpanID())
 		time.Sleep(200 * time.Millisecond) // 200ms delay
 		slowSpan.End()
 		log.Printf("Generated slow trace (>100ms): %s", trace.SpanContextFromContext(ctx).TraceID())
@@ -123,6 +125,7 @@ func generateTrace(ctx context.Context, tracer trace.Tracer) {
 	// Occasionally generate error spans for tail sampling test
 	if time.Now().Unix()%5 == 0 {
 		_, errSpan := tracer.Start(ctx, "error-span")
+		log.Printf("[GEN] TraceID: %s, SpanID: %s, Name: error-span", errSpan.SpanContext().TraceID(), errSpan.SpanContext().SpanID())
 		errSpan.SetStatus(1, "intentional error") // 1 is StatusError in OTel Go
 		errSpan.End()
 		log.Println("Generated error span")
