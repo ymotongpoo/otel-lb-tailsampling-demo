@@ -11,7 +11,7 @@ data:
     processors:
       batch:
       tail_sampling:
-        decision_wait: 10s
+        decision_wait: 5s
         num_traces: 10000
         expected_new_traces_per_sec: 100
         policies:
@@ -20,7 +20,7 @@ data:
             status_code: {status_codes: [ERROR]}
           - name: probabilistic-policy
             type: probabilistic
-            probabilistic: {sampling_percentage: 10}
+            probabilistic: {sampling_percentage: 100}
     exporters:
       debug:
         verbosity: detailed

@@ -99,3 +99,17 @@ kubectl logs -l app=otel-tier2
    ```
 
 もし設定が正しくなければ、同じ TraceID のスパン（root-span と child-span など）が別々の pod のログに分散して現れます。正しく設定されていれば、必ず特定の pod 1つのログにのみ集約されます。
+
+### トレースが見つからない場合のトラブルシューティング
+
+1. **テイルサンプリングによるドロップ**:
+   現在の設定ではエラーでないトレースは10%しかサンプリングされません。確実に確認したい場合は、`manifests/tier2.yaml` の `sampling_percentage` を `100` に変更してください。
+
+2. **決定待ち時間**:
+   `tail_sampling` の `decision_wait: 5s` により、最初のスパンが届いてからログに出力されるまで少なくとも5秒かかります。少し待ってから再度確認してください。
+
+3. **Tier 1 の状況確認**:
+   Tier 1 がそもそも Tier 2 に送信できているかを確認します。Tier 1 のログに `Exporting failed` などのエラーが出ていないか確認してください。
+   ```bash
+   kubectl logs -l app=otel-tier1
+   ```
