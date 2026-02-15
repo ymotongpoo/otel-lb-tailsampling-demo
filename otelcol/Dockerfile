@@ -16,7 +16,7 @@
 
 FROM golang:1.24-bookworm AS builder
 RUN apt-get update && apt-get install -y git ca-certificates
-RUN go install go.opentelemetry.io/collector/cmd/builder@v0.120.0
+RUN go install go.opentelemetry.io/collector/cmd/builder@v0.145.0
 WORKDIR /app
 COPY builder-config.yaml .
 RUN builder --config builder-config.yaml

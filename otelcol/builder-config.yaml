@@ -18,16 +18,16 @@ dist:
   name: otelcol-custom
   description: Custom OpenTelemetry Collector for PoC
   output_path: ./dist
-  otelcol_version: 0.120.0
+  otelcol_version: 0.145.0
 
 exporters:
-  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.120.0
-  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.120.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/loadbalancingexporter v0.120.0
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.145.0
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.145.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/loadbalancingexporter v0.145.0
 
 processors:
-  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.120.0
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.120.0
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.145.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.145.0
 
 receivers:
-  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.120.0
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.145.0
