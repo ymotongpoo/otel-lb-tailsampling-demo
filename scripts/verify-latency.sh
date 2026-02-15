@@ -23,14 +23,19 @@ THRESHOLD=6
 
 echo "Searching for the latest slow trace (>100ms) from trace-generator logs..."
 
-# 1. ログから最新のSlow trace IDを取得
-# 時刻に関係なく、最新の該当ログを1行取得する。grep でエスケープの差異を避けるため単純化
-LOG_DATA=$(kubectl logs -l app=trace-generator --timestamps --since=5m | grep -i "slow-span" | tail -n 1)
+# 1. ログを取得して一旦ファイルに保存 (一貫性のため一回だけ取得)
+TMP_GEN_LOGS=$(mktemp)
+trap "rm -f $TMP_GEN_LOGS" EXIT
+
+kubectl logs -l app=trace-generator --timestamps --since=10m > "$TMP_GEN_LOGS"
+
+# 最新の該当ログを1行取得する。
+LOG_DATA=$(grep -i "slow-span" "$TMP_GEN_LOGS" | tail -n 1)
 
 if [ -z "$LOG_DATA" ]; then
-  echo "Error: No slow traces found in generator logs in the last 5 minutes."
+  echo "Error: No slow traces found in generator logs in the last 10 minutes."
   echo "Latest generator logs for reference:"
-  kubectl logs -l app=trace-generator --tail=10
+  tail -n 10 "$TMP_GEN_LOGS"
   exit 1
 fi
 
@@ -38,20 +43,17 @@ fi
 TS_RAW=$(echo "$LOG_DATA" | awk '{print $1}')
 TS=$(echo "$TS_RAW" | sed 's/\..*Z/Z/')
 
-# TraceIDの抽出
+# TraceIDの抽出。末尾の余計な文字を除去しておく
 if echo "$LOG_DATA" | grep -q "TraceID:"; then
-  TRACE_ID=$(echo "$LOG_DATA" | sed 's/.*TraceID: \([^,]*\).*/\1/')
+  TRACE_ID=$(echo "$LOG_DATA" | sed 's/.*TraceID: \([^,]*\).*/\1/' | tr -d '\r' | xargs)
 else
-  # 旧形式: Generated slow trace (>100ms): <ID>
-  TRACE_ID=$(echo "$LOG_DATA" | awk '{print $NF}')
+  TRACE_ID=$(echo "$LOG_DATA" | awk '{print $NF}' | tr -d '\r' | xargs)
 fi
 
 echo "Found latest slow TraceID: $TRACE_ID"
 echo "Log time: $TS_RAW"
 
-# decision_wait 分を待つ。
-# クロックがズレている可能性があるため、複雑な計算はせず、
-# 現在時刻とログ時刻の差が 6秒未満（またはログが未来）なら、必要な分だけスリープする。
+# decision_wait 分を待つ
 NOW=$(date +%s)
 if [[ "$OSTYPE" == "darwin"* ]]; then
   TS_SEC=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$TS" +%s 2>/dev/null || echo 0)
@@ -63,16 +65,25 @@ DIFF=$((NOW - TS_SEC))
 WAIT_TIME=$((THRESHOLD - DIFF))
 
 if [ "$WAIT_TIME" -gt 0 ]; then
-  echo "The trace is recent (or clock skew detected). Waiting ${WAIT_TIME}s for decision_wait..."
+  echo "The trace is recent. Waiting ${WAIT_TIME}s for decision_wait..."
   sleep "$WAIT_TIME"
 fi
 
-echo "Generator side Span IDs for $TRACE_ID:"
-# 生成器側のログから該当TraceIDの全スパンIDを抽出
-kubectl logs -l app=trace-generator --since=5m | grep "TraceID: $TRACE_ID" | grep "SpanID:" | sed 's/.*SpanID: \([^,]*\).*/  - \1/' | sort -u
+echo "--------------------------------------------------"
+echo "1. Generator side (app) Span IDs for $TRACE_ID:"
+# ファイルから該当TraceIDの全スパンIDを抽出 (一貫性が保証される)
+GEN_SPANS=$(grep -F "$TRACE_ID" "$TMP_GEN_LOGS" | grep "SpanID:" | sed -E 's/.*SpanID: ([0-9a-f]+), Name: ([^)]*).*/  - \1 (\2)/' | sort -u)
+
+if [ -n "$GEN_SPANS" ]; then
+  echo "$GEN_SPANS"
+else
+  echo "  (No detailed SpanID logs found for TraceID: $TRACE_ID)"
+  echo "  Matching lines from generator logs:"
+  grep -F "$TRACE_ID" "$TMP_GEN_LOGS" | sed 's/^/    /'
+fi
 
 echo "--------------------------------------------------"
-echo "Verifying Tier 2 collector logs for this TraceID..."
+echo "2. Collector side (Tier 2) verification..."
 
 # 2. Tier 2 podsを巡回して検索 (リトライ付き)
 MAX_RETRIES=3
@@ -82,21 +93,21 @@ UNIQUE_PODS=""
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SPANS_FOUND -eq 0 ]; do
   if [ $RETRY_COUNT -gt 0 ]; then
-    echo "Wait 5s for decision_wait and retry... ($RETRY_COUNT/$MAX_RETRIES)"
+    echo "Wait 5s and retry... ($RETRY_COUNT/$MAX_RETRIES)"
     sleep 5
   fi
 
   for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
     echo -n "Checking $pod... "
-    POD_LOGS=$(kubectl logs $pod --since=5m)
-    # Trace IDの行を見つけ、その後の ID : の行を抽出
-    SPANS=$(echo "$POD_LOGS" | grep -A 3 "Trace ID.*: $TRACE_ID" | grep "ID.*:" | awk '{print $NF}' | sort -u)
+    POD_LOGS=$(kubectl logs $pod --since=15m)
+    # debug exporterの出力 (ID : xxx) を抽出。Trace ID と Parent ID は除外する。
+    SPANS=$(echo "$POD_LOGS" | grep -A 5 "Trace ID.*: $TRACE_ID" | grep "ID.*:" | grep -vE "Trace ID|Parent ID" | awk '{print $NF}' | grep -v ":" | sort -u)
     
     COUNT=$(echo "$SPANS" | grep -v "^$" | wc -l || echo 0)
     
     if [ $COUNT -gt 0 ]; then
       echo "FOUND $COUNT span(s)!"
-      echo "Span IDs found in $pod:"
+      echo "Collector-side Span IDs found in $pod:"
       echo "$SPANS" | sed 's/^/  - /'
       
       SPANS_FOUND=$((SPANS_FOUND + COUNT))
@@ -118,12 +129,11 @@ if [ $SPANS_FOUND -gt 0 ]; then
   echo "- Pods list:"
   echo "$UNIQUE_PODS" | sed 's/^/  / '
 
+  echo "--------------------------------------------------"
   if [ $POD_COUNT -eq 1 ]; then
-    echo "--------------------------------------------------"
     echo "✅ Success: All $SPANS_FOUND spans for $TRACE_ID were found in a SINGLE pod ($UNIQUE_PODS)."
     echo "This confirms the sticky routing/load balancing is working correctly."
   else
-    echo "--------------------------------------------------"
     echo "❌ Failure: Spans for $TRACE_ID were found in $POD_COUNT different pods."
     echo "This indicates that trace aggregation is NOT working as expected."
     exit 1
