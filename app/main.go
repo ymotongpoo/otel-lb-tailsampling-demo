@@ -113,8 +113,8 @@ func generateTrace(ctx context.Context, tracer trace.Tracer) {
 		childSpan.End()
 	}
 
-	// Occasionally generate slow traces for tail sampling test
-	if time.Now().Unix()%3 == 0 {
+	// Generate slow traces for tail sampling test
+	{
 		ctx, slowSpan := tracer.Start(ctx, "slow-span")
 		log.Printf("[GEN] TraceID: %s, SpanID: %s, Name: slow-span (SLOW)", slowSpan.SpanContext().TraceID(), slowSpan.SpanContext().SpanID())
 		time.Sleep(200 * time.Millisecond) // 200ms delay
