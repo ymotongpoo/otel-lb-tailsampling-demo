@@ -38,33 +38,50 @@ TRACE_ID=$(kubectl logs -l app=trace-generator --timestamps | grep "Generated sl
 done)
 
 if [ -z "$TRACE_ID" ]; then
-  echo "Error: No slow traces found in generator logs. Please wait a few seconds and try again."
+  echo "Error: No slow traces found in generator logs that are old enough."
+  echo "Latest logs from generator:"
+  kubectl logs -l app=trace-generator --tail=5 | grep "Generated trace"
   exit 1
 fi
 
 echo "Found slow TraceID: $TRACE_ID"
-echo "Checking Tier 2 collector logs for this TraceID (may take a few seconds for tail sampling decision wait)..."
+echo "Checking Tier 2 collector logs for this TraceID..."
 
-# 2. Tier 2 podsを巡回して検索
+# 2. Tier 2 podsを巡回して検索 (リトライ付き)
+MAX_RETRIES=3
+RETRY_COUNT=0
 FOUND=false
-for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
-  echo -n "Checking $pod... "
-  # grepでTraceIDを検索。見つかれば詳細を表示。
-  MATCH=$(kubectl logs $pod | grep "$TRACE_ID" || true)
-  if [ -n "$MATCH" ]; then
-    echo "FOUND!"
-    echo "Log detail:"
-    echo "$MATCH"
-    FOUND=true
-    break
-  else
-    echo "Not here."
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$FOUND" = false ]; do
+  if [ $RETRY_COUNT -gt 0 ]; then
+    echo "Wait 5s for decision_wait and retry... ($RETRY_COUNT/$MAX_RETRIES)"
+    sleep 5
   fi
+
+  for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
+    echo -n "Checking $pod... "
+    MATCH=$(kubectl logs $pod --since=1m | grep "$TRACE_ID" || true)
+    if [ -n "$MATCH" ]; then
+      echo "FOUND!"
+      echo "Log detail (first 10 lines):"
+      echo "$MATCH" | head -n 10
+      FOUND=true
+      break
+    else
+      echo "Not here."
+    fi
+  done
+  RETRY_COUNT=$((RETRY_COUNT + 1))
 done
 
 if [ "$FOUND" = true ]; then
-  echo "Success: Slow trace $TRACE_ID was correctly sampled and found in Tier 2."
+  echo "--------------------------------------------------"
+  echo "✅ Success: Slow trace $TRACE_ID was correctly sampled and found in Tier 2."
 else
-  echo "Failure: Slow trace $TRACE_ID was NOT found in any Tier 2 pod. Check decision_wait (5s) and retry."
+  echo "--------------------------------------------------"
+  echo "❌ Failure: Slow trace $TRACE_ID was NOT found in any Tier 2 pod."
+  echo "Suggestions:"
+  echo "1. Check Tier 1 export errors: kubectl logs -l app=otel-tier1 | grep -i error"
+  echo "2. Check Tier 2 receiver status: kubectl logs -l app=otel-tier2 | grep otlp"
   exit 1
 fi
