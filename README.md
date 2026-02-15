@@ -118,3 +118,13 @@ kubectl logs -l app=otel-tier2
    ```bash
    kubectl logs -l app=otel-tier1
    ```
+
+### レイテンシーサンプリングの検証スクリプト
+
+100msを超えるスパンが正しくサンプリングされているかを確認するための自動化スクリプトを用意しています。
+
+```bash
+./scripts/verify-latency.sh
+```
+
+このスクリプトは、アプリ側のログから「遅延が発生したトレースID」を見つけ出し、それが Tier 2 コレクターのいずれかに存在するかを確認します。
