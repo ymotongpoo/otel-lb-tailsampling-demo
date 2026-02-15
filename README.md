@@ -28,13 +28,25 @@
 
 ## クイックスタート
 
-### 1. クラスターの準備 (k3dを使用する場合)
+### 1. クラスターの準備
+
+#### k3d を使用する場合
 
 ローカルレジストリ付きのk3dクラスターを作成することを推奨します。
 
 ```bash
 k3d cluster create otel-poc --registry-create otel-poc-registry:5000
 ```
+
+#### minikube を使用する場合
+
+minikubeを使用する場合は、以下のコマンドで起動します。
+
+```bash
+minikube start
+```
+
+Skaffoldが自動的にminikubeを認識し、イメージをminikube内のDockerデーモンでビルドするため、レジストリへのプッシュは不要です。
 
 ### 2. 環境の構築と起動
 
