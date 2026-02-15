@@ -45,14 +45,16 @@ if [ -z "$TRACE_ID" ]; then
 fi
 
 echo "Found slow TraceID: $TRACE_ID"
-echo "Checking Tier 2 collector logs for this TraceID..."
+echo "Verifying that all spans for this TraceID are routed to the same Tier 2 collector pod..."
 
 # 2. Tier 2 podsを巡回して検索 (リトライ付き)
 MAX_RETRIES=3
 RETRY_COUNT=0
-FOUND=false
+FINAL_POD=""
+SPANS_FOUND=0
+UNIQUE_PODS=""
 
-while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$FOUND" = false ]; do
+while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SPANS_FOUND -eq 0 ]; do
   if [ $RETRY_COUNT -gt 0 ]; then
     echo "Wait 5s for decision_wait and retry... ($RETRY_COUNT/$MAX_RETRIES)"
     sleep 5
@@ -60,13 +62,28 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$FOUND" = false ]; do
 
   for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
     echo -n "Checking $pod... "
-    MATCH=$(kubectl logs $pod --since=1m | grep "$TRACE_ID" || true)
-    if [ -n "$MATCH" ]; then
-      echo "FOUND!"
-      echo "Log detail (first 10 lines):"
-      echo "$MATCH" | head -n 10
-      FOUND=true
-      break
+    # 特定のTraceIDに関連するスパン情報を抽出 (ID: <span-id> の行を取得)
+    # debug exporterの出力形式に依存:
+    # Span #0
+    #     Trace ID       : <trace-id>
+    #     Parent ID      : <parent-id>
+    #     ID             : <span-id>
+    #     Name           : <name>
+    
+    # 該当TraceIDを含む行の直後数行からIDを抽出する
+    POD_LOGS=$(kubectl logs $pod --since=2m)
+    # Trace IDの行を見つけ、その後の ID : の行を抽出
+    SPANS=$(echo "$POD_LOGS" | grep -A 3 "Trace ID.*: $TRACE_ID" | grep "ID.*:" | awk '{print $NF}' | sort -u)
+    
+    COUNT=$(echo "$SPANS" | grep -v "^$" | wc -l || echo 0)
+    
+    if [ $COUNT -gt 0 ]; then
+      echo "FOUND $COUNT span(s)!"
+      echo "Span IDs:"
+      echo "$SPANS" | sed 's/^/  - /'
+      
+      SPANS_FOUND=$((SPANS_FOUND + COUNT))
+      UNIQUE_PODS=$(echo -e "${UNIQUE_PODS}\n${pod}" | grep -v "^$" | sort -u)
     else
       echo "Not here."
     fi
@@ -74,12 +91,29 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$FOUND" = false ]; do
   RETRY_COUNT=$((RETRY_COUNT + 1))
 done
 
-if [ "$FOUND" = true ]; then
-  echo "--------------------------------------------------"
-  echo "✅ Success: Slow trace $TRACE_ID was correctly sampled and found in Tier 2."
+echo "--------------------------------------------------"
+POD_COUNT=$(echo "$UNIQUE_PODS" | grep -v "^$" | wc -l || echo 0)
+
+if [ $SPANS_FOUND -gt 0 ]; then
+  echo "Summary:"
+  echo "- Total spans found: $SPANS_FOUND"
+  echo "- Unique pods found: $POD_COUNT"
+  echo "- Pods list:"
+  echo "$UNIQUE_PODS" | sed 's/^/  / '
+
+  if [ $POD_COUNT -eq 1 ]; then
+    echo "--------------------------------------------------"
+    echo "✅ Success: All $SPANS_FOUND spans for $TRACE_ID were found in a SINGLE pod ($UNIQUE_PODS)."
+    echo "This confirms the sticky routing/load balancing is working correctly."
+  else
+    echo "--------------------------------------------------"
+    echo "❌ Failure: Spans for $TRACE_ID were found in $POD_COUNT different pods."
+    echo "This indicates that trace aggregation is NOT working as expected."
+    exit 1
+  fi
 else
   echo "--------------------------------------------------"
-  echo "❌ Failure: Slow trace $TRACE_ID was NOT found in any Tier 2 pod."
+  echo "❌ Failure: No spans for $TRACE_ID were found in any Tier 2 pod."
   echo "Suggestions:"
   echo "1. Check Tier 1 export errors: kubectl logs -l app=otel-tier1 | grep -i error"
   echo "2. Check Tier 2 receiver status: kubectl logs -l app=otel-tier2 | grep otlp"
