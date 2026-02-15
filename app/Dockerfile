@@ -14,7 +14,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24-bookworm AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN go build -o generator main.go
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o generator main.go
 
 FROM gcr.io/distroless/static-debian12
 
