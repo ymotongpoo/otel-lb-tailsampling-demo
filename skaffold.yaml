@@ -14,24 +14,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: skaffold/v4beta11
+kind: Config
 metadata:
-  name: trace-generator
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: trace-generator
-  template:
-    metadata:
-      labels:
-        app: trace-generator
-    spec:
-      containers:
-      - name: generator
-        image: otel-poc-app
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: "otel-gateway:4317"
+  name: otel-poc
+build:
+  artifacts:
+    - image: otel-poc-app
+      context: app
+    - image: otel-poc-collector
+      context: otelcol
+manifests:
+  rawYaml:
+    - manifests/tier1.yaml
+    - manifests/tier2.yaml
+    - manifests/app.yaml

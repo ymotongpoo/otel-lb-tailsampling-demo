@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Trace Generator
 
-このアプリケーションは、OpenTelemetry Collectorのロードバランシングとテールサンプリングの動作をテストするためのトレースデータを生成します。
+このアプリケーションは、OpenTelemetry Collectorのロードバランシングとテイルサンプリングの動作をテストするためのトレースデータを生成します。
 
 ## 機能
 

@@ -14,24 +14,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: trace-generator
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: trace-generator
-  template:
-    metadata:
-      labels:
-        app: trace-generator
-    spec:
-      containers:
-      - name: generator
-        image: otel-poc-app
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: "otel-gateway:4317"
+FROM golang:1.24-alpine AS builder
+RUN apk add --no-cache git ca-certificates
+RUN go install go.opentelemetry.io/collector/cmd/builder@v0.120.0
+WORKDIR /app
+COPY builder-config.yaml .
+RUN builder --config builder-config.yaml
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /app/dist/otelcol-custom /otelcol-custom
+EXPOSE 4317 4318
+ENTRYPOINT ["/otelcol-custom"]

@@ -54,8 +54,8 @@ spec:
     spec:
       containers:
       - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:latest
-        command: ["/otelcol-contrib"]
+        image: otel-poc-collector
+        command: ["/otelcol-custom"]
         args: ["--config=/etc/otelcol/relay.yaml"]
         volumeMounts:
         - name: config
