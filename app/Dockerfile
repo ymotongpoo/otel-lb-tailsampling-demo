@@ -24,9 +24,9 @@ RUN go mod download
 COPY . .
 RUN go build -o generator main.go
 
-FROM alpine:latest
+FROM gcr.io/distroless/static-debian12
 
-WORKDIR /root/
+WORKDIR /
 COPY --from=builder /app/generator .
 
-CMD ["./generator"]
+CMD ["/generator"]
