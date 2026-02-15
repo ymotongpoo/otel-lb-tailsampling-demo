@@ -17,40 +17,59 @@
 
 set -e
 
-echo "Searching for a slow trace (>100ms) from trace-generator logs that occurred at least 6 seconds ago..."
-
-# 1. 少なくとも6秒以上前のSlow trace IDを取得
-# --timestamps を使ってRFC3339の時刻を取得し、現在時刻と比較する
+# 現在時刻の取得
 NOW=$(date +%s)
 THRESHOLD=6
 
-# ログをパースして条件に合う最新のものを探す
-TRACE_ID=$(kubectl logs -l app=trace-generator --timestamps | grep "Generated slow trace" | tac | while read -r line; do
-  # line format: 2026-02-15T09:12:17.123456789Z 2026/02/15 09:12:17 Generated slow trace (>100ms): <ID>
-  TS=$(echo "$line" | awk '{print $1}')
-  TS_SEC=$(date -d "$TS" +%s)
+echo "Searching for a slow trace (>100ms) from trace-generator logs that occurred at least ${THRESHOLD} seconds ago..."
+
+# 1. 少なくとも指定秒数以上前のSlow trace IDを取得
+# --timestamps を使ってRFC3339の時刻を取得し、現在時刻と比較する
+# ナノ秒が含まれると date コマンドが失敗する場合があるため、秒単位に丸める
+TRACE_LINE=$(kubectl logs -l app=trace-generator --timestamps --since=5m | grep -E "Generated slow trace|Name: slow-span \(SLOW\)" | tac | while read -r line; do
+  TS_RAW=$(echo "$line" | awk '{print $1}')
+  # ナノ秒部分を削除 (2026-02-15T09:42:40.378Z -> 2026-02-15T09:42:40Z)
+  TS=$(echo "$TS_RAW" | sed 's/\..*Z/Z/')
+  
+  # 秒数に変換 (GNU dateの形式を優先)
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    TS_SEC=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$TS" +%s 2>/dev/null || echo 0)
+  else
+    TS_SEC=$(date -d "$TS" +%s 2>/dev/null || echo 0)
+  fi
+
+  if [ "$TS_SEC" -eq 0 ]; then continue; fi
+
   DIFF=$((NOW - TS_SEC))
   
   if [ "$DIFF" -ge "$THRESHOLD" ]; then
-    echo "$line" | awk '{print $NF}'
+    echo "$line"
     break
   fi
 done)
 
-if [ -z "$TRACE_ID" ]; then
+if [ -z "$TRACE_LINE" ]; then
   echo "Error: No slow traces found in generator logs that are old enough."
-  echo "Latest logs from generator:"
-  kubectl logs -l app=trace-generator --tail=5
+  echo "Check the frequency of slow traces or wait a bit longer."
+  echo "Latest generator logs for reference:"
+  kubectl logs -l app=trace-generator --tail=10
   exit 1
 fi
 
-echo "Found slow TraceID: $TRACE_ID"
+# TraceIDの抽出
+if echo "$TRACE_LINE" | grep -q "TraceID:"; then
+  TRACE_ID=$(echo "$TRACE_LINE" | sed 's/.*TraceID: \([^,]*\).*/\1/')
+else
+  TRACE_ID=$(echo "$TRACE_LINE" | awk '{print $NF}')
+fi
+
+echo "Found slow TraceID: $TRACE_ID (Generated about $((NOW - TS_SEC)) seconds ago)"
 echo "Generator side Span IDs:"
 # 生成器側のログから該当TraceIDの全スパンIDを抽出
-kubectl logs -l app=trace-generator | grep "\[GEN\] TraceID: $TRACE_ID" | sed 's/.*SpanID: \([^,]*\).*/  - \1/' | sort -u
+kubectl logs -l app=trace-generator --since=5m | grep "TraceID: $TRACE_ID" | grep "SpanID:" | sed 's/.*SpanID: \([^,]*\).*/  - \1/' | sort -u
 
 echo "--------------------------------------------------"
-echo "Verifying that all spans for this TraceID are routed to the same Tier 2 collector pod..."
+echo "Verifying Tier 2 collector logs for this TraceID..."
 
 # 2. Tier 2 podsを巡回して検索 (リトライ付き)
 MAX_RETRIES=3
@@ -66,8 +85,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SPANS_FOUND -eq 0 ]; do
 
   for pod in $(kubectl get pods -l app=otel-tier2 -o name); do
     echo -n "Checking $pod... "
-    # 該当TraceIDを含む行の直後数行からIDを抽出する
-    POD_LOGS=$(kubectl logs $pod --since=2m)
+    POD_LOGS=$(kubectl logs $pod --since=5m)
     # Trace IDの行を見つけ、その後の ID : の行を抽出
     SPANS=$(echo "$POD_LOGS" | grep -A 3 "Trace ID.*: $TRACE_ID" | grep "ID.*:" | awk '{print $NF}' | sort -u)
     
@@ -92,8 +110,8 @@ POD_COUNT=$(echo "$UNIQUE_PODS" | grep -v "^$" | wc -l || echo 0)
 
 if [ $SPANS_FOUND -gt 0 ]; then
   echo "Summary:"
-  echo "- Total spans found: $SPANS_FOUND"
-  echo "- Unique pods found: $POD_COUNT"
+  echo "- Total collector-side spans found: $SPANS_FOUND"
+  echo "- Unique pods involved: $POD_COUNT"
   echo "- Pods list:"
   echo "$UNIQUE_PODS" | sed 's/^/  / '
 
@@ -110,8 +128,6 @@ if [ $SPANS_FOUND -gt 0 ]; then
 else
   echo "--------------------------------------------------"
   echo "❌ Failure: No spans for $TRACE_ID were found in any Tier 2 pod."
-  echo "Suggestions:"
-  echo "1. Check Tier 1 export errors: kubectl logs -l app=otel-tier1 | grep -i error"
-  echo "2. Check Tier 2 receiver status: kubectl logs -l app=otel-tier2 | grep otlp"
+  echo "Suggestions: Check Tier 1/Tier 2 logs for errors."
   exit 1
 fi
