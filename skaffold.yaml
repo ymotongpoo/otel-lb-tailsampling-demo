@@ -24,6 +24,8 @@ build:
       context: app
     - image: otel-poc-collector
       context: otelcol
+  local:
+    push: false
 manifests:
   rawYaml:
     - manifests/tier1.yaml
