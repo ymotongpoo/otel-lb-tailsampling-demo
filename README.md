@@ -10,6 +10,8 @@
 2. **Tier 1 Collector (Gateway)**: `loadbalancing` エクスポーターを使用し、トレースIDに基づいて特定の Tier 2 インスタンスにスパンをルーティングします。これにより、同じトレースに属するすべてのスパンが同一の Tier 2 インスタンスに集約されます。
 3. **Tier 2 Collector (Sampling)**: `tail_sampling` プロセッサーを使用し、トレース全体が揃った状態でサンプリングの決定（例：エラーが含まれるトレースのみ保存する等）を行います。
 
+![アーキテクチャ図](doc/diagram.png)
+
 ## プロジェクト構成
 
 - `app/`: トレース生成器（Go製）のソースコードとDockerfile

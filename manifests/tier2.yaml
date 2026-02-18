@@ -47,7 +47,7 @@ metadata:
   name: otel-tier2
 spec:
   serviceName: otel-tier2-internal
-  replicas: 3
+  replicas: 4
   selector:
     matchLabels:
       app: otel-tier2
