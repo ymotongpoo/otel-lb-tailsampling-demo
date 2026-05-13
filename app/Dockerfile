@@ -24,7 +24,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o generator main.go
 
-FROM gcr.io/distroless/static-debian12
+FROM scratch
 
 WORKDIR /
 COPY --from=builder /app/generator .
